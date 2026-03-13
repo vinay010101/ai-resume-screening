@@ -1,48 +1,68 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
+import sqlite3
+import smtplib
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
-import database
-import mail
-import config
-import ui
+
+# ---------------- DB ----------------
+
+def create_db():
+    conn = sqlite3.connect("data.db")
+    c = conn.cursor()
+
+    c.execute(
+        "CREATE TABLE IF NOT EXISTS data(resume TEXT, score INT, mail TEXT)"
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def insert_db(r, s, m):
+    conn = sqlite3.connect("data.db")
+    c = conn.cursor()
+
+    c.execute(
+        "INSERT INTO data VALUES(?,?,?)",
+        (r, s, m),
+    )
+
+    conn.commit()
+    conn.close()
+
+
+def get_db():
+    conn = sqlite3.connect("data.db")
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM data")
+
+    data = c.fetchall()
+
+    conn.close()
+
+    return data
+
+
+create_db()
 
 
 # ---------------- CONFIG ----------------
 
 st.set_page_config(
-    layout="wide",
     page_title="AI Resume Screening",
-    page_icon="🤖"
+    layout="wide"
 )
-
-st.markdown("""
-<style>
-
-body {
-background-color:#0e1117;
-color:white;
-}
-
-.stButton>button {
-background-color:#00BFFF;
-color:white;
-border-radius:6px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-
-database.create()
-
-ui.title()
 
 
 # ---------------- LOGIN ----------------
+
+USER = "admin"
+PASS = "123"
+
 
 if "login" not in st.session_state:
     st.session_state.login = False
@@ -50,12 +70,14 @@ if "login" not in st.session_state:
 
 if not st.session_state.login:
 
-    user = st.text_input("Username")
-    pwd = st.text_input("Password", type="password")
+    st.title("AI RESUME SCREENING")
+
+    u = st.text_input("Username")
+    p = st.text_input("Password", type="password")
 
     if st.button("Login"):
 
-        if user in config.USERS and pwd == config.USERS[user]:
+        if u == USER and p == PASS:
             st.session_state.login = True
         else:
             st.error("Wrong login")
@@ -82,9 +104,9 @@ if "rejected" not in st.session_state:
 
 if menu == "Home":
 
-    st.subheader("Dashboard")
+    st.header("Dashboard")
 
-    data = database.get()
+    data = get_db()
 
     if data:
 
@@ -95,21 +117,9 @@ if menu == "Home":
 
         st.dataframe(df)
 
-        ui.card("Total", len(df))
-        ui.card("Selected", len(st.session_state.selected))
-        ui.card("Rejected", len(st.session_state.rejected))
-
-        fig = plt.figure()
-        plt.hist(df["Score"])
-        st.pyplot(fig)
-
-        csv = df.to_csv(index=False)
-
-        st.download_button(
-            "Download Excel",
-            csv,
-            "data.csv"
-        )
+        st.write("Total:", len(df))
+        st.write("Selected:", len(st.session_state.selected))
+        st.write("Rejected:", len(st.session_state.rejected))
 
 
 # ---------------- SCREENING ----------------
@@ -131,7 +141,7 @@ if menu == "Screening":
     msg1 = st.text_area("Mail for selected")
     msg2 = st.text_area("Mail for rejected")
 
-    if st.button("Start Screening"):
+    if st.button("Start"):
 
         st.session_state.selected = []
         st.session_state.rejected = []
@@ -151,29 +161,18 @@ if menu == "Screening":
                 tfidf[1:2]
             )[0][0] * 100
 
-            skills = ["python","sql","java","ai","ml","aws"]
+            mail = f.name
 
-            found = []
-
-            for s in skills:
-                if s in text.lower():
-                    found.append(s)
-
-            skill_text = ",".join(found)
-
-            mail_id = f.name
-
-            database.insert(
+            insert_db(
                 f.name,
                 int(score),
-                mail_id
+                mail,
             )
 
             row = {
                 "Resume": f.name,
                 "Score": int(score),
-                "Mail": mail_id,
-                "Skills": skill_text
+                "Mail": mail,
             }
 
             if score >= cutoff:
@@ -184,7 +183,7 @@ if menu == "Screening":
         st.session_state.msg1 = msg1
         st.session_state.msg2 = msg2
 
-        st.success("Screening Done")
+        st.success("Done")
 
 
 # ---------------- TABLE ----------------
@@ -208,23 +207,23 @@ def show(data, msg):
         range(1, len(df) + 1)
     )
 
-    st.write(df)
+    st.dataframe(df)
 
     select_all = st.checkbox("Select All")
 
-    selected = []
+    mails = []
 
-    for i, row in df.iterrows():
+    for i, r in df.iterrows():
 
         if select_all:
-            selected.append(row["Mail"])
+            mails.append(r["Mail"])
 
     if st.button("Send Mail"):
 
-        for m in selected:
-            mail.send(m, msg)
+        for m in mails:
+            print("send to", m)
 
-        st.success("Mail Sent")
+        st.success("Mail sent")
 
 
 # ---------------- SELECTED ----------------
@@ -233,7 +232,7 @@ if menu == "Selected":
 
     show(
         st.session_state.selected,
-        st.session_state.get("msg1", "")
+        st.session_state.get("msg1", ""),
     )
 
 
@@ -243,5 +242,5 @@ if menu == "Rejected":
 
     show(
         st.session_state.rejected,
-        st.session_state.get("msg2", "")
+        st.session_state.get("msg2", ""),
     )
