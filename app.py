@@ -29,7 +29,7 @@ if not st.session_state.login:
 
     if st.button("Login"):
 
-        if user == config.USER and pwd == config.PASS:
+        if user in config.USERS and pwd == config.USERS[user]:
             st.session_state.login = True
         else:
             st.error("Wrong")
@@ -71,6 +71,23 @@ if menu == "Home":
         )
 
         st.dataframe(df)
+        import matplotlib.pyplot as plt
+
+        ui.card("Total", len(df))
+
+        fig = plt.figure()
+
+        plt.hist(df["Score"])
+
+        st.pyplot(fig)
+
+        csv = df.to_csv(index=False)
+
+        st.download_button(
+            "Download Excel",
+            csv,
+            "data.csv"
+        )
 
 
 # ---------------- SCREENING ----------------

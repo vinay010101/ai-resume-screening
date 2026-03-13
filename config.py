@@ -1,2 +1,5 @@
-USER = "admin"
-PASS = "admin123"
+USERS = {
+    "admin": "admin123",
+    "hr": "hr123",
+    "tcs": "tcs123"
+}
