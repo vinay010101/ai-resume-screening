@@ -1,53 +1,70 @@
 import streamlit as st
 import pandas as pd
-import re
 import smtplib
 from email.mime.text import MIMEText
-from PyPDF2 import PdfReader
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
-from streamlit_option_menu import option_menu
 
+# ---------------- CONFIG ----------------
 
 st.set_page_config(
     page_title="AI Resume Screening",
+    page_icon="🤖",
     layout="wide"
 )
 
-# ---------------- SESSION ----------------
+# ---------------- STYLE ----------------
 
-if "login" not in st.session_state:
-    st.session_state.login = False
+st.markdown("""
+<style>
 
-if "history" not in st.session_state:
-    st.session_state.history = []
+.big-title {
+text-align:center;
+font-size:40px;
+font-weight:bold;
+color:#00BFFF;
+}
+
+.login-box {
+background-color:#111;
+padding:20px;
+border-radius:10px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------- TITLE ----------------
+
+st.markdown(
+'<div class="big-title">AI RESUME SCREENING SYSTEM</div>',
+unsafe_allow_html=True
+)
 
 
 # ---------------- LOGIN ----------------
 
+if "login" not in st.session_state:
+    st.session_state.login = False
+
 def login():
 
-    st.markdown(
-        "<h1 style='text-align:center;color:green;'>AI RESUME SCREENING</h1>",
-        unsafe_allow_html=True,
-    )
+    col1,col2,col3 = st.columns([2,2,2])
 
-    c1, c2, c3 = st.columns([2, 2, 2])
+    with col2:
 
-    with c2:
-
-        st.markdown("### Login")
+        st.subheader("Login")
 
         user = st.text_input("Username")
         pwd = st.text_input("Password", type="password")
 
         if st.button("Login"):
 
-            if user == "admin" and pwd == "1234":
-                st.session_state.login = True
+            if user=="admin" and pwd=="admin":
+                st.session_state.login=True
             else:
-                st.error("Wrong login")
-
+                st.error("Wrong")
 
 if not st.session_state.login:
     login()
@@ -56,247 +73,189 @@ if not st.session_state.login:
 
 # ---------------- SIDEBAR ----------------
 
-with st.sidebar:
-
-    selected = option_menu(
-        "Menu",
-        ["Home", "Screening", "About"],
-        icons=["house", "robot", "info"],
-        default_index=0,
-    )
+menu = st.sidebar.radio(
+"Menu",
+["Home","Screening","Selected","Rejected"]
+)
 
 
-# ---------------- FUNCTIONS ----------------
+# ---------------- STORAGE ----------------
 
-def read_file(file):
+if "data" not in st.session_state:
+    st.session_state.data=[]
 
-    if file.type == "application/pdf":
-        pdf = PdfReader(file)
-        text = ""
+if "selected" not in st.session_state:
+    st.session_state.selected=[]
 
-        for page in pdf.pages:
-            text += page.extract_text()
-
-        return text
-
-    else:
-        return file.read().decode()
-
-
-def get_email(text):
-
-    pattern = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
-
-    match = re.findall(pattern, text)
-
-    if match:
-        return match[0]
-
-    return "Not found"
+if "rejected" not in st.session_state:
+    st.session_state.rejected=[]
 
 
 # ---------------- HOME ----------------
 
-if selected == "Home":
+if menu=="Home":
 
-    st.title("Previous History")
+    st.subheader("History")
 
-    if st.session_state.history:
-
-        for h in st.session_state.history:
-            st.write(h)
-
+    if st.session_state.data:
+        df=pd.DataFrame(st.session_state.data)
+        st.dataframe(df,use_container_width=True)
     else:
-        st.write("No history yet")
+        st.info("No data")
 
 
 # ---------------- SCREENING ----------------
 
-if selected == "Screening":
+if menu=="Screening":
 
-    st.title("Resume Screening")
+    st.subheader("Upload resumes")
 
-    keywords = st.text_input(
-        "Skills",
-        "python, java, sql, ai, aws, cloud, devops"
+    job=st.text_area("Job description")
+
+    files=st.file_uploader(
+        "Upload",
+        accept_multiple_files=True
     )
 
-    keyword_list = [
-        k.strip().lower()
-        for k in keywords.split(",")
-    ]
+    limit=st.slider(
+        "Cutoff",
+        0,100,50
+    )
 
-    col1, col2 = st.columns(2)
+    msg1=st.text_area("Selected mail")
+    msg2=st.text_area("Rejected mail")
 
-    with col1:
-        resumes = st.file_uploader(
-            "Upload Resumes",
-            type=["txt", "pdf"],
-            accept_multiple_files=True
-        )
 
-    with col2:
-        job_file = st.file_uploader(
-            "Upload Job Description",
-            type=["txt", "pdf"]
-        )
+    if st.button("Start"):
 
-    if resumes and job_file:
+        st.session_state.selected=[]
+        st.session_state.rejected=[]
 
-        job = read_file(job_file)
+        for f in files:
 
-        scores = []
+            text=f.read().decode("latin1")
 
-        for file in resumes:
+            vec=TfidfVectorizer()
 
-            resume = read_file(file)
-
-            email = get_email(resume)
-
-            texts = [resume, job]
-
-            vectorizer = TfidfVectorizer()
-            tfidf = vectorizer.fit_transform(texts)
-
-            score = cosine_similarity(
-                tfidf[0], tfidf[1]
-            )[0][0]
-
-            final_score = score * 100
-
-            scores.append(
-                {
-                    "Resume": file.name,
-                    "Email": email,
-                    "Score": round(final_score, 2),
-                }
+            tfidf=vec.fit_transform(
+                [job,text]
             )
 
-        df = pd.DataFrame(scores)
+            score=cosine_similarity(
+                tfidf[0:1],
+                tfidf[1:2]
+            )[0][0]*100
 
-        df = df.sort_values(
-            by="Score",
-            ascending=False
-        )
+            mail=f.name
 
-        st.dataframe(df)
+            row={
+                "Resume":f.name,
+                "Score":int(score),
+                "Mail":mail
+            }
 
-        st.write("----")
+            st.session_state.data.append(row)
 
-        cutoff = st.number_input(
-            "Cutoff Score",
-            value=50
-        )
+            if score>=limit:
+                st.session_state.selected.append(row)
+            else:
+                st.session_state.rejected.append(row)
 
-        selected_df = df[df["Score"] >= cutoff]
-        rejected_df = df[df["Score"] < cutoff]
+        st.success("Done")
 
-        selected_df = selected_df.sort_values(
-            by="Score",
-            ascending=False
-        )
 
-        rejected_df = rejected_df.sort_values(
-            by="Score",
-            ascending=False
-        )
+# ---------------- MAIL ----------------
 
-        selected_df.insert(
-            0,
-            "S.No",
-            range(1, len(selected_df) + 1),
-        )
+def send_mail(to,msg):
 
-        rejected_df.insert(
-            0,
-            "S.No",
-            range(1, len(rejected_df) + 1),
-        )
+    sender="youremail@gmail.com"
+    password="app_password"
 
-        st.subheader("Selected Candidates")
-        st.dataframe(selected_df)
+    m=MIMEText(msg)
 
-        st.subheader("Rejected Candidates")
-        st.dataframe(rejected_df)
+    m["Subject"]="Result"
+    m["From"]=sender
+    m["To"]=to
 
-        st.session_state.history.append(
-            f"{len(selected_df)} selected / {len(rejected_df)} rejected"
-        )
+    s=smtplib.SMTP("smtp.gmail.com",587)
+    s.starttls()
+    s.login(sender,password)
 
-        st.write("----")
+    s.sendmail(sender,to,m.as_string())
+    s.quit()
 
-        select_mail = st.text_area(
-            "Mail for Selected",
-            "You are selected for next round"
-        )
 
-        reject_mail = st.text_area(
-            "Mail for Rejected",
-            "Thank you for applying"
-        )
+# ---------------- TABLE ----------------
 
-        sender_email = st.text_input(
-            "Sender Gmail"
-        )
+def show(data,msg):
 
-        app_password = st.text_input(
-            "App Password",
-            type="password"
-        )
+    if not data:
+        st.info("No data")
+        return
 
+    df=pd.DataFrame(data)
+
+    df=df.sort_values(
+        by="Score",
+        ascending=False
+    )
+
+    df.insert(
+        0,
+        "S.No",
+        range(1,len(df)+1)
+    )
+
+    mails=df["Mail"].tolist()
+
+    select=st.multiselect(
+        "Select",
+        mails
+    )
+
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
+
+    c1,c2=st.columns(2)
+
+    with c1:
         if st.button("Send Mail"):
+            for m in select:
+                send_mail(m,msg)
+            st.success("Sent")
 
-            server = smtplib.SMTP(
-                "smtp.gmail.com",
-                587
-            )
-
-            server.starttls()
-
-            server.login(
-                sender_email,
-                app_password
-            )
-
-            for i in selected_df["Email"]:
-
-                msg = MIMEText(select_mail)
-
-                msg["Subject"] = "Interview Update"
-                msg["From"] = sender_email
-                msg["To"] = i
-
-                server.sendmail(
-                    sender_email,
-                    i,
-                    msg.as_string()
-                )
-
-            for i in rejected_df["Email"]:
-
-                msg = MIMEText(reject_mail)
-
-                msg["Subject"] = "Application Update"
-                msg["From"] = sender_email
-                msg["To"] = i
-
-                server.sendmail(
-                    sender_email,
-                    i,
-                    msg.as_string()
-                )
-
-            server.quit()
-
-            st.success("Mails Sent")
+    with c2:
+        if st.button("Send Mail All"):
+            for m in mails:
+                send_mail(m,msg)
+            st.success("Sent all")
 
 
-# ---------------- ABOUT ----------------
+# ---------------- SELECTED ----------------
 
-if selected == "About":
+if menu=="Selected":
 
-    st.title("About")
+    st.subheader("Selected")
 
-    st.write(
-        "AI Resume Screening System using NLP and Machine Learning"
+    msg=st.text_area("Mail")
+
+    show(
+        st.session_state.selected,
+        msg
+    )
+
+
+# ---------------- REJECTED ----------------
+
+if menu=="Rejected":
+
+    st.subheader("Rejected")
+
+    msg=st.text_area("Mail")
+
+    show(
+        st.session_state.rejected,
+        msg
     )
